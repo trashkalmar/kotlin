@@ -65,8 +65,8 @@ class ImportInsertHelperImpl(private val project: Project) : ImportInsertHelper(
         val allDefaultImports = platform.getDefaultImports(languageVersionSettings, includeLowPriorityImports = true)
 
         val scriptExtraImports = contextFile.takeIf { it.isScript() }?.let { ktFile ->
-            val scriptExternalDependencies = ScriptDependenciesProvider.getInstance(ktFile.project).getScriptDependencies(ktFile.originalFile)
-            scriptExternalDependencies?.imports?.map { ImportPath.fromString(it) }.orEmpty()
+            val scriptDependencies = ScriptDependenciesProvider.getInstance(ktFile.project).getScriptDependencies(ktFile.originalFile)
+            scriptDependencies?.imports?.map { ImportPath.fromString(it) }
         }.orEmpty()
 
         return importPath.isImported(allDefaultImports + scriptExtraImports, platform.excludedImports)
