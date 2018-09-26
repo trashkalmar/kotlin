@@ -22,7 +22,7 @@ import org.jetbrains.kotlin.idea.facet.KotlinFacet
 import java.io.File
 
 internal object KotlinSerializationImportHandler {
-    private val PLUGIN_JPS_JAR: String
+    val PLUGIN_JPS_JAR: String
         get() = File(PathUtil.kotlinPathsForIdeaPlugin.libPath, "kotlinx-serialization-compiler-plugin.jar").absolutePath
 
 
@@ -30,15 +30,18 @@ internal object KotlinSerializationImportHandler {
         val facetSettings = facet.configuration.settings
         val commonArguments = facetSettings.compilerArguments ?: CommonCompilerArguments.DummyImpl()
 
+        var pluginWasEnabled = false
         val oldPluginClasspaths = (commonArguments.pluginClasspaths ?: emptyArray()).filterTo(mutableListOf()) {
             val lastIndexOfFile = it.lastIndexOfAny(charArrayOf('/', File.separatorChar))
             if (lastIndexOfFile < 0) {
                 return@filterTo true
             }
-            !it.drop(lastIndexOfFile + 1).matches("$buildSystemPluginJar-.*\\.jar".toRegex())
+            val match = it.drop(lastIndexOfFile + 1).matches("$buildSystemPluginJar-.*\\.jar".toRegex())
+            if (match) pluginWasEnabled = true
+            !match
         }
 
-        val newPluginClasspaths = oldPluginClasspaths + PLUGIN_JPS_JAR
+        val newPluginClasspaths = if (pluginWasEnabled) oldPluginClasspaths + PLUGIN_JPS_JAR else oldPluginClasspaths
         commonArguments.pluginClasspaths = newPluginClasspaths.toTypedArray()
         facetSettings.compilerArguments = commonArguments
     }
