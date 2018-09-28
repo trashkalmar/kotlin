@@ -109,13 +109,13 @@ abstract class AbstractKotlinKapt3Test : CodegenTestCase() {
 
         // Use light analysis mode in tests
         val project = myEnvironment.project
-        AnalysisHandlerExtension.registerExtension(project, PartialAnalysisHandlerExtension())
+//        AnalysisHandlerExtension.registerExtension(project, PartialAnalysisHandlerExtension())
         StorageComponentContainerContributor.registerExtension(project, KaptComponentContributor())
 
         loadMultiFiles(files)
 
         val txtFile = File(wholeFile.parentFile, wholeFile.nameWithoutExtension + ".txt")
-        val classBuilderFactory = OriginCollectingClassBuilderFactory(ClassBuilderMode.KAPT3)
+        val classBuilderFactory = OriginCollectingClassBuilderFactory(ClassBuilderMode.FULL)
         val generationState = GenerationUtils.compileFiles(myFiles.psiFiles, myEnvironment, classBuilderFactory)
 
         val logger = MessageCollectorBackedKaptLogger(isVerbose = true, messageCollector = messageCollector)
