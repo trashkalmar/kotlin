@@ -1,0 +1,7 @@
+@kotlin.Metadata
+public final class IfReturnPrimitiveKt {
+    public final static @org.jetbrains.annotations.Nullable method f1(p0: int, @org.jetbrains.annotations.NotNull p1: kotlin.coroutines.Continuation): java.lang.Object
+    public final static @org.jetbrains.annotations.Nullable method f2(p0: int, @org.jetbrains.annotations.NotNull p1: kotlin.coroutines.Continuation): java.lang.Object
+    public final static @org.jetbrains.annotations.Nullable method f3(p0: int, @org.jetbrains.annotations.NotNull p1: kotlin.coroutines.Continuation): java.lang.Object
+    synthetic final static @org.jetbrains.annotations.Nullable method f_2(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+}

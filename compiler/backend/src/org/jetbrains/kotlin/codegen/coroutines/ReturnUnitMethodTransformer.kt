@@ -80,42 +80,6 @@ object ReturnUnitMethodTransformer : MethodTransformer() {
         }.keys
     }
 
-    // Find instructions which do something on stack, ignoring markers
-    // Return map {insn => list of found instructions}
-    private fun findSuccessors(
-        methodNode: MethodNode,
-        insns: Collection<AbstractInsnNode>
-    ): Map<AbstractInsnNode, Collection<AbstractInsnNode>> {
-        val cfg = ControlFlowGraph.build(methodNode)
-
-        return insns.keysToMap { findSuccessorsDFS(it, cfg, methodNode) }
-    }
-
-    // Find all meaningful successors of insn
-    private fun findSuccessorsDFS(insn: AbstractInsnNode, cfg: ControlFlowGraph, methodNode: MethodNode): Collection<AbstractInsnNode> {
-        val visited = hashSetOf<AbstractInsnNode>()
-
-        fun dfs(current: AbstractInsnNode): Collection<AbstractInsnNode> {
-            if (!visited.add(current)) return emptySet()
-
-            return cfg.getSuccessorsIndices(current).flatMap {
-                val succ = methodNode.instructions[it]
-                when {
-                    !succ.isMeaningful || succ is JumpInsnNode || succ.opcode == Opcodes.NOP -> dfs(succ)
-                    succ.isUnitInstance() -> {
-                        // There can be multiple chains of { UnitInstance, POP } after inlining. Ignore them
-                        val newSuccessors = dfs(succ)
-                        if (newSuccessors.all { it.opcode == Opcodes.POP }) newSuccessors.flatMap { dfs(it) }
-                        else setOf(succ)
-                    }
-                    else -> setOf(succ)
-                }
-            }
-        }
-
-        return dfs(insn)
-    }
-
     private fun isSuspendingCallReturningUnit(node: AbstractInsnNode): Boolean =
         node.safeAs<MethodInsnNode>()?.next?.next?.let(::isReturnsUnitMarker) == true
 
@@ -148,4 +112,40 @@ internal fun findSourceInstructions(
         if (isUnreachable(index, frames)) return@keysToMap emptySet<AbstractInsnNode>()
         frames[index].getStack(0).insns
     }
+}
+
+// Find instructions which do something on stack, ignoring markers
+// Return map {insn => list of found instructions}
+internal fun findSuccessors(
+    methodNode: MethodNode,
+    insns: Collection<AbstractInsnNode>
+): Map<AbstractInsnNode, Collection<AbstractInsnNode>> {
+    val cfg = ControlFlowGraph.build(methodNode)
+
+    return insns.keysToMap { findSuccessorsDFS(it, cfg, methodNode) }
+}
+
+// Find all meaningful successors of insn
+private fun findSuccessorsDFS(insn: AbstractInsnNode, cfg: ControlFlowGraph, methodNode: MethodNode): Collection<AbstractInsnNode> {
+    val visited = hashSetOf<AbstractInsnNode>()
+
+    fun dfs(current: AbstractInsnNode): Collection<AbstractInsnNode> {
+        if (!visited.add(current)) return emptySet()
+
+        return cfg.getSuccessorsIndices(current).flatMap {
+            val succ = methodNode.instructions[it]
+            when {
+                !succ.isMeaningful || succ is JumpInsnNode || succ.opcode == Opcodes.NOP -> dfs(succ)
+                succ.isUnitInstance() -> {
+                    // There can be multiple chains of { UnitInstance, POP } after inlining. Ignore them
+                    val newSuccessors = dfs(succ)
+                    if (newSuccessors.all { it.opcode == Opcodes.POP }) newSuccessors.flatMap { dfs(it) }
+                    else setOf(succ)
+                }
+                else -> setOf(succ)
+            }
+        }
+    }
+
+    return dfs(insn)
 }

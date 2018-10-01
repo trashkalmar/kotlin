@@ -1,0 +1,17 @@
+@kotlin.Metadata
+public abstract class A {
+    public method <init>(): void
+    public final @org.jetbrains.annotations.Nullable method notOptimized(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+    public final @org.jetbrains.annotations.Nullable method optimized(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+    protected abstract @org.jetbrains.annotations.Nullable method optional(): java.lang.String
+    protected abstract @org.jetbrains.annotations.Nullable method slow(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+}
+
+@kotlin.Metadata
+public abstract class C {
+    public method <init>(): void
+    public final @org.jetbrains.annotations.Nullable method notOptimized(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+    public final @org.jetbrains.annotations.Nullable method optimized(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+    protected abstract method ready(): boolean
+    protected abstract @org.jetbrains.annotations.Nullable method slow(@org.jetbrains.annotations.NotNull p0: kotlin.coroutines.Continuation): java.lang.Object
+}

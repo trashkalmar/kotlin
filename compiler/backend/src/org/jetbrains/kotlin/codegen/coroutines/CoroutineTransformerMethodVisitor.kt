@@ -83,6 +83,8 @@ class CoroutineTransformerMethodVisitor(
 
         FixStackMethodTransformer().transform(containingClassInternalName, methodNode)
         RedundantLocalsEliminationMethodTransformer(languageVersionSettings).transform(containingClassInternalName, methodNode)
+        RedundantUnboxingEliminationMethodTransformer.transform(containingClassInternalName, methodNode)
+        ReturnMovingMethodTransformer(collectSuspensionPoints(methodNode)).transform(containingClassInternalName, methodNode)
         if (languageVersionSettings.isReleaseCoroutines()) {
             ChangeBoxingMethodTransformer.transform(containingClassInternalName, methodNode)
         }
@@ -826,7 +828,7 @@ private fun Type.normalize() =
  * ICONST_1
  * INVOKESTATIC InlineMarker.mark()
  */
-private class SuspensionPoint(
+internal class SuspensionPoint(
     // ICONST_0
     val suspensionCallBegin: AbstractInsnNode,
     // INVOKESTATIC InlineMarker.mark()
