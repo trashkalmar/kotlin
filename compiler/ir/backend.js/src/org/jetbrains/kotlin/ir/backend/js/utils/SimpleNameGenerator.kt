@@ -8,7 +8,10 @@ package org.jetbrains.kotlin.ir.backend.js.utils
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrLoop
+import org.jetbrains.kotlin.ir.symbols.IrClassSymbol
+import org.jetbrains.kotlin.ir.symbols.IrClassifierSymbol
 import org.jetbrains.kotlin.ir.symbols.IrSymbol
+import org.jetbrains.kotlin.ir.symbols.IrTypeParameterSymbol
 import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.util.isDynamic
 import org.jetbrains.kotlin.ir.util.isEffectivelyExternal
@@ -196,30 +199,36 @@ class SimpleNameGenerator : NameGenerator {
             nameDeclarator(sanitizeName(nameBuilder.toString()))
         }
 
-    private fun IrType.asString(): String = when(this) {
-        // TODO
-        is IrErrorType -> "\$ErrorType\$"
-        // TODO should we prohibit classes called dynamic?
-        is IrDynamicType -> "dynamic"
-        is IrSimpleType ->
-            classifier.descriptor.fqNameUnsafe.asString() +
-                    (if (hasQuestionMark) "?" else "") +
-                    (arguments.ifNotEmpty {
-                        joinToString(separator = ",", prefix = "<", postfix = ">") { it.asString() }
-                    } ?: "")
-        else -> error("Unexpected kind of IrType: " + javaClass.typeName)
-    }
-
-    private fun IrTypeArgument.asString(): String = when(this) {
-        is IrStarProjection -> "*"
-        is IrTypeProjection -> variance.label + (if (variance != Variance.INVARIANT) " " else "") + type.asString()
-        else -> error("Unexpected kind of IrTypeArgument: " + javaClass.simpleName)
-    }
-
     private fun sanitizeName(name: String): String {
         if (name.isEmpty()) return "_"
 
         val first = name.first().let { if (it.isES5IdentifierStart()) it else '_' }
         return first.toString() + name.drop(1).map { if (it.isES5IdentifierPart()) it else '_' }.joinToString("")
     }
+}
+
+fun IrType.asString(): String = when(this) {
+    // TODO
+    is IrErrorType -> "\$ErrorType\$"
+    // TODO should we prohibit classes called dynamic?
+    is IrDynamicType -> "dynamic"
+    is IrSimpleType ->
+        classifier.asString() +
+                (if (hasQuestionMark) "?" else "") +
+                (arguments.ifNotEmpty {
+                    joinToString(separator = ",", prefix = "<", postfix = ">") { it.asString() }
+                } ?: "")
+    else -> error("Unexpected kind of IrType: " + javaClass.typeName)
+}
+
+private fun IrTypeArgument.asString(): String = when(this) {
+    is IrStarProjection -> "*"
+    is IrTypeProjection -> variance.label + (if (variance != Variance.INVARIANT) " " else "") + type.asString()
+    else -> error("Unexpected kind of IrTypeArgument: " + javaClass.simpleName)
+}
+
+private fun IrClassifierSymbol.asString() = when (this) {
+    is IrTypeParameterSymbol -> this.owner.name.asString()
+    is IrClassSymbol -> this.descriptor.fqNameUnsafe.asString()
+    else -> error("Unexpected kind of IrClassifierSymbol: " + javaClass.typeName)
 }
