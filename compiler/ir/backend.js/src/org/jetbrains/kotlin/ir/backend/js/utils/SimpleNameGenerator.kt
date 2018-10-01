@@ -9,16 +9,17 @@ import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.IrLoop
 import org.jetbrains.kotlin.ir.symbols.IrSymbol
-import org.jetbrains.kotlin.ir.types.IrType
-import org.jetbrains.kotlin.ir.types.classifierOrFail
+import org.jetbrains.kotlin.ir.types.*
 import org.jetbrains.kotlin.ir.util.isDynamic
 import org.jetbrains.kotlin.ir.util.isEffectivelyExternal
-import org.jetbrains.kotlin.ir.util.render
 import org.jetbrains.kotlin.js.backend.ast.JsName
 import org.jetbrains.kotlin.js.naming.isES5IdentifierPart
 import org.jetbrains.kotlin.js.naming.isES5IdentifierStart
 import org.jetbrains.kotlin.resolve.calls.tasks.isDynamic
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameUnsafe
 import org.jetbrains.kotlin.resolve.descriptorUtil.isEffectivelyExternal
+import org.jetbrains.kotlin.types.Variance
+import org.jetbrains.kotlin.utils.addToStdlib.ifNotEmpty
 
 // TODO: this class has to be reimplemented soon
 class SimpleNameGenerator : NameGenerator {
@@ -173,9 +174,16 @@ class SimpleNameGenerator : NameGenerator {
                 is IrSimpleFunction -> {
 
                     nameBuilder.append(declaration.name.asString())
-                    declaration.extensionReceiverParameter?.let { nameBuilder.append("_\$${it.type.render()}") }
-                    declaration.typeParameters.forEach { nameBuilder.append("_${it.name.asString()}") }
-                    declaration.valueParameters.forEach { nameBuilder.append("_${it.type.render()}") }
+                    declaration.typeParameters.ifNotEmpty {
+                        nameBuilder.append("_\$t")
+                        joinTo(nameBuilder, "") { "_${it.name.asString()}" }
+                    }
+                    declaration.extensionReceiverParameter?.let {
+                        nameBuilder.append("_r$${it.type.asString()}")
+                    }
+                    declaration.valueParameters.ifNotEmpty {
+                        joinTo(nameBuilder, "") { "_${it.type.asString()}" }
+                    }
                 }
 
             }
@@ -188,6 +196,25 @@ class SimpleNameGenerator : NameGenerator {
             nameDeclarator(sanitizeName(nameBuilder.toString()))
         }
 
+    private fun IrType.asString(): String = when(this) {
+        // TODO
+        is IrErrorType -> "\$ErrorType\$"
+        // TODO should we prohibit classes called dynamic?
+        is IrDynamicType -> "dynamic"
+        is IrSimpleType ->
+            classifier.descriptor.fqNameUnsafe.asString() +
+                    (if (hasQuestionMark) "?" else "") +
+                    (arguments.ifNotEmpty {
+                        joinToString(separator = ",", prefix = "<", postfix = ">") { it.asString() }
+                    } ?: "")
+        else -> error("Unexpected kind of IrType: " + javaClass.typeName)
+    }
+
+    private fun IrTypeArgument.asString(): String = when(this) {
+        is IrStarProjection -> "*"
+        is IrTypeProjection -> variance.label + (if (variance != Variance.INVARIANT) " " else "") + type.asString()
+        else -> error("Unexpected kind of IrTypeArgument: " + javaClass.simpleName)
+    }
 
     private fun sanitizeName(name: String): String {
         if (name.isEmpty()) return "_"
