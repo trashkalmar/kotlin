@@ -113,6 +113,10 @@ class KotlinJavascriptSerializerTest : TestCaseWithTmpdir() {
         doTest("js/dynamicConstants.kt")
     }
 
+    fun testPropertyAccessorAnnotations() {
+        doTest("js/propertyAccessorAnnotations.kt")
+    }
+
     fun testSimple() {
         doTest("builtinsSerializer/simple.kt")
     }
