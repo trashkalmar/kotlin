@@ -9,12 +9,11 @@ import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.config.*
 import org.jetbrains.kotlin.coroutines.hasSuspendFunctionType
 import org.jetbrains.kotlin.descriptors.*
-import org.jetbrains.kotlin.descriptors.impl.AnonymousFunctionDescriptor
 import org.jetbrains.kotlin.diagnostics.DiagnosticSink
 import org.jetbrains.kotlin.diagnostics.Errors
-import org.jetbrains.kotlin.diagnostics.Errors.SUSPENSION_POINT_INSIDE_MONITOR
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.psi.*
+import org.jetbrains.kotlin.psi.KtExpression
+import org.jetbrains.kotlin.psi.KtThisExpression
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.calls.callUtil.isCallableReference
@@ -27,7 +26,6 @@ import org.jetbrains.kotlin.resolve.scopes.LexicalScopeKind
 import org.jetbrains.kotlin.resolve.scopes.receivers.ExpressionReceiver
 import org.jetbrains.kotlin.resolve.scopes.receivers.ReceiverValue
 import org.jetbrains.kotlin.resolve.scopes.utils.parentsWithSelf
-import org.jetbrains.kotlin.resolve.source.PsiSourceElement
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.typeUtil.supertypes
 import org.jetbrains.kotlin.utils.addToStdlib.cast
@@ -48,17 +46,15 @@ fun FunctionDescriptor.isBuiltInCoroutineContext(languageVersionSettings: Langua
 fun PropertyDescriptor.isBuiltInCoroutineContext(languageVersionSettings: LanguageVersionSettings) =
     this.fqNameSafe.isBuiltInCoroutineContext(languageVersionSettings)
 
-fun DeclarationDescriptor.isTopLevelInPackage(name: String, packageName: String): Boolean {
-    if (name != this.name.asString()) return false
+private val ALLOWED_SCOPE_KINDS = setOf(LexicalScopeKind.FUNCTION_INNER_SCOPE, LexicalScopeKind.FUNCTION_HEADER_FOR_DESTRUCTURING)
 
-    val containingDeclaration = containingDeclaration as? PackageFragmentDescriptor ?: return false
-    val packageFqName = containingDeclaration.fqName.asString()
-    return packageName == packageFqName
-}
+fun findEnclosingSuspendFunction(context: CallCheckerContext): FunctionDescriptor? = context.scope
+    .parentsWithSelf.firstOrNull {
+    it is LexicalScope && it.kind in ALLOWED_SCOPE_KINDS &&
+            it.ownerDescriptor.safeAs<FunctionDescriptor>()?.isSuspend == true
+}?.cast<LexicalScope>()?.ownerDescriptor?.cast()
 
 object CoroutineSuspendCallChecker : CallChecker {
-    private val ALLOWED_SCOPE_KINDS = setOf(LexicalScopeKind.FUNCTION_INNER_SCOPE, LexicalScopeKind.FUNCTION_HEADER_FOR_DESTRUCTURING)
-
     override fun check(resolvedCall: ResolvedCall<*>, reportOn: PsiElement, context: CallCheckerContext) {
         val descriptor = resolvedCall.candidateDescriptor
         when (descriptor) {
@@ -71,15 +67,7 @@ object CoroutineSuspendCallChecker : CallChecker {
             else -> return
         }
 
-        val enclosingSuspendFunctionScope = context.scope
-            .parentsWithSelf.firstOrNull {
-            it is LexicalScope && it.kind in ALLOWED_SCOPE_KINDS &&
-                    it.ownerDescriptor.safeAs<FunctionDescriptor>()?.isSuspend == true
-        }
-
-        val enclosingSuspendFunction = enclosingSuspendFunctionScope?.cast<LexicalScope>()?.ownerDescriptor?.cast<FunctionDescriptor>()
-
-        checkSuspensionPointInMonitor(context, enclosingSuspendFunctionScope, reportOn, resolvedCall)
+        val enclosingSuspendFunction = findEnclosingSuspendFunction(context)
 
         when {
             enclosingSuspendFunction != null -> {
@@ -128,31 +116,6 @@ object CoroutineSuspendCallChecker : CallChecker {
                         )
                     )
                 }
-            }
-        }
-    }
-
-    private fun checkSuspensionPointInMonitor(
-        context: CallCheckerContext,
-        enclosingSuspendFunctionScope: HierarchicalScope?,
-        reportOn: PsiElement,
-        resolvedCall: ResolvedCall<*>
-    ) {
-        for (scope in context.scope.parentsWithSelf) {
-            if (scope == enclosingSuspendFunctionScope) break
-            if (scope !is LexicalScope || scope.kind != LexicalScopeKind.FUNCTION_INNER_SCOPE) continue
-            val ownerDescriptor = scope.ownerDescriptor
-            if (ownerDescriptor is AnonymousFunctionDescriptor) {
-                val lambdaExpression = (ownerDescriptor.source as? PsiSourceElement)?.psi?.parent as? KtLambdaExpression ?: continue
-                val lambdaArgument = lambdaExpression.parent as? KtLambdaArgument ?: continue
-                val callExpression = lambdaArgument.parent as? KtCallExpression ?: continue
-                val call = context.trace[BindingContext.CALL, callExpression.calleeExpression] ?: continue
-                val resolved = context.trace[BindingContext.RESOLVED_CALL, call] ?: continue
-                if (resolved.resultingDescriptor.isTopLevelInPackage("synchronized", "kotlin")) {
-                    context.trace.report(SUSPENSION_POINT_INSIDE_MONITOR.on(reportOn, resolvedCall.resultingDescriptor))
-                    break
-                }
-                break
             }
         }
     }

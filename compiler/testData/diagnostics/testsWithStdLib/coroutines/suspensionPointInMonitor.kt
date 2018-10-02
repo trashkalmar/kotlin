@@ -10,14 +10,20 @@ suspend fun suspensionPoint() {}
 fun test() {
     builder {
         synchronized(lock) {
-            <!SUSPENSION_POINT_INSIDE_MONITOR!>suspensionPoint<!>()
+            <!SUSPENSION_POINT_INSIDE_SYNCHRONIZED!>suspensionPoint<!>()
         }
+
+        synchronized(lock) label@{
+            <!SUSPENSION_POINT_INSIDE_SYNCHRONIZED!>suspensionPoint<!>()
+        }
+
+        synchronized(lock, { <!SUSPENSION_POINT_INSIDE_SYNCHRONIZED!>suspensionPoint<!>() })
     }
 }
 
 suspend fun run() {
     synchronized(lock) {
-        <!SUSPENSION_POINT_INSIDE_MONITOR!>suspensionPoint<!>()
+        <!SUSPENSION_POINT_INSIDE_SYNCHRONIZED!>suspensionPoint<!>()
     }
 }
 
@@ -26,7 +32,7 @@ suspend fun ifWhenAndOtherNonsence() {
         if (lock == Any()) {
             when (1) {
                 is Int -> {
-                    return@synchronized 1 + <!SUSPENSION_POINT_INSIDE_MONITOR!>returnsInt<!>()
+                    return@synchronized 1 + <!SUSPENSION_POINT_INSIDE_SYNCHRONIZED!>returnsInt<!>()
                 }
                 else -> {}
             }
