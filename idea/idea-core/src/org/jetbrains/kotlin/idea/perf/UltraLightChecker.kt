@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.idea.perf
 import com.intellij.psi.*
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForSourceDeclaration
+import org.jetbrains.kotlin.asJava.classes.KtUltraLightClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
 import org.junit.Assert
@@ -20,9 +21,9 @@ object UltraLightChecker {
         }
     }
 
-    fun checkClassEquivalence(ktClass: KtClassOrObject): KtLightClassForSourceDeclaration? {
+    fun checkClassEquivalence(ktClass: KtClassOrObject): KtUltraLightClass? {
         val gold = KtLightClassForSourceDeclaration.create(ktClass)
-        val ultraLightClass = KtLightClassForSourceDeclaration.createUltraLight(ktClass)
+        val ultraLightClass = KtLightClassForSourceDeclaration.createUltraLight(ktClass) as KtUltraLightClass?
         if (gold != null) {
             Assert.assertFalse(gold.javaClass.name.contains("Ultra"))
         }

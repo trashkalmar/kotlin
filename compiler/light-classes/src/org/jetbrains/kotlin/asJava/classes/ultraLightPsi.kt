@@ -5,7 +5,9 @@
 
 package org.jetbrains.kotlin.asJava.classes
 
+import com.google.common.annotations.VisibleForTesting
 import com.intellij.lang.Language
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.psi.*
 import com.intellij.psi.impl.PsiClassImplUtil
 import com.intellij.psi.impl.PsiImplUtil
@@ -41,17 +43,31 @@ import org.jetbrains.kotlin.resolve.jvm.annotations.VOLATILE_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind
 import org.jetbrains.kotlin.types.KotlinType
 
-internal class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
+class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
+    companion object {
+        private val LOG = Logger.getInstance(KtUltraLightClass::class.java)
+    }
+
     private val support: UltraLightSupport? by lazyPub { LightClassGenerationSupport.getInstance(project).ultraLightSupport(classOrObject) }
 
     override fun isFinal(isFinalByPsi: Boolean) = if (support == null) super.isFinal(isFinalByPsi) else isFinalByPsi
 
-    override fun findLightClassData(): LightClassData {
-        if (!isClsDelegateLoaded && support != null) {
-            throw IllegalStateException("Cls delegate shouldn't be loaded for not too complex ultra-light classes!")
+    @Volatile
+    @VisibleForTesting
+    var isClsDelegateLoaded = false
+
+    override fun findLightClassData(): LightClassData = super.findLightClassData().also {
+        if (!isClsDelegateLoaded) {
+            isClsDelegateLoaded = true
+
+            check(support == null) { "Cls delegate shouldn't be loaded for not too complex ultra-light classes!" }
+            if (LOG.isDebugEnabled) {
+                LOG.debug("Loading class data for $qualifiedName", Throwable())
+            }
         }
-        return super.findLightClassData()
     }
+
+    override fun createAnotherClass(kt: KtClassOrObject) = if (kt !is KtEnumEntry) createUltraLight(kt) else super.createAnotherClass(kt)
 
     private fun allSuperTypes() =
         getDescriptor()?.typeConstructor?.supertypes?.mapNotNull {
@@ -94,8 +110,9 @@ internal class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
         for (param in propertyParameters()) {
             val modifiers = hashSetOf<String>()
             modifiers.add(PsiModifier.PRIVATE)
-            if (!param.isMutable)
+            if (!param.isMutable) {
                 modifiers.add(PsiModifier.FINAL)
+            }
             result.add(KtUltraLightField(param, generateUniqueName(usedNames, param.name.orEmpty()), this, support!!, modifiers))
         }
 
@@ -160,18 +177,21 @@ internal class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
         val fieldName = generateUniqueName(usedNames, (prop.name ?: "") + (if (hasDelegate) "\$delegate" else ""))
 
         val modifiers = hashSetOf<String>()
-        if (prop.hasModifier(KtTokens.PRIVATE_KEYWORD))
+        if (prop.hasModifier(KtTokens.PRIVATE_KEYWORD)) {
             modifiers.add(PsiModifier.PRIVATE)
-        else if (prop.hasModifier(KtTokens.CONST_KEYWORD) || prop.hasModifier(KtTokens.LATEINIT_KEYWORD) && prop.setter == null)
+        } else if (prop.hasModifier(KtTokens.CONST_KEYWORD) || prop.hasModifier(KtTokens.LATEINIT_KEYWORD) && prop.setter == null) {
             modifiers.add(PsiModifier.PUBLIC)
-        else
+        } else {
             modifiers.add(PsiModifier.PRIVATE)
+        }
 
-        if (!prop.isVar || prop.hasModifier(KtTokens.CONST_KEYWORD) || hasDelegate)
+        if (!prop.isVar || prop.hasModifier(KtTokens.CONST_KEYWORD) || hasDelegate) {
             modifiers.add(PsiModifier.FINAL)
+        }
 
-        if (forceStatic || isNamedObject() && isJvmStatic(prop))
+        if (forceStatic || isNamedObject() && isJvmStatic(prop)) {
             modifiers.add(PsiModifier.STATIC)
+        }
 
         return KtUltraLightField(prop, fieldName, this, support!!, modifiers)
     }

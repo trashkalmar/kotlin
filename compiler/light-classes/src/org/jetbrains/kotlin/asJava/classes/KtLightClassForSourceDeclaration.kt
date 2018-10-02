@@ -87,18 +87,9 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
     abstract override fun getQualifiedName(): String?
 
     override val lightClassData: LightClassData
-        get() = findLightClassData().also {
-            if (!isClsDelegateLoaded) {
-                if (LOG.isDebugEnabled) {
-                    LOG.debug("Loading class data for $qualifiedName", Throwable())
-                }
-                isClsDelegateLoaded = true
-            }
-        }
+        get() = findLightClassData()
 
-    var isClsDelegateLoaded = false
-
-    open protected fun findLightClassData() = getLightClassDataHolder().findDataForClassOrObject(classOrObject)
+    protected open fun findLightClassData() = getLightClassDataHolder().findDataForClassOrObject(classOrObject)
 
     private fun getJavaFileStub(): PsiJavaFileStub = getLightClassDataHolder().javaFileStub
 
@@ -321,8 +312,7 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
         return result
     }
 
-    protected fun createAnotherClass(kt: KtClassOrObject) =
-        if (this is KtUltraLightClass && kt !is KtEnumEntry) createUltraLight(kt) else create(kt)
+    protected open fun createAnotherClass(kt: KtClassOrObject) = create(kt)
 
     override fun getUseScope(): SearchScope = kotlinOrigin.useScope
 
