@@ -5,6 +5,8 @@ val lock = Any()
 
 fun builder(c: suspend () -> Unit) {}
 
+suspend fun getLock() = lock
+
 suspend fun suspensionPoint() {}
 
 fun test() {
@@ -18,6 +20,10 @@ fun test() {
         }
 
         synchronized(lock, { <!SUSPENSION_POINT_INSIDE_SYNCHRONIZED!>suspensionPoint<!>() })
+
+        synchronized(getLock()) {
+            println("")
+        }
     }
 }
 

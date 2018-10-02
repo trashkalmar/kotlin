@@ -9,6 +9,7 @@ import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.descriptors.isTopLevelInPackage
 import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.resolve.BindingContext
 import org.jetbrains.kotlin.resolve.calls.checkers.CallChecker
 import org.jetbrains.kotlin.resolve.calls.checkers.CallCheckerContext
@@ -27,14 +28,18 @@ class SuspensionPointInSynchronizedCallChecker : CallChecker {
 
         // Search for `synchronized` call
         var psi = reportOn
+        var insideLambda = false
         while (psi != enclosingSuspendFunctionSource) {
             if (psi is KtCallExpression) {
                 val call = context.trace[BindingContext.CALL, psi.calleeExpression] ?: continue
                 val resolved = context.trace[BindingContext.RESOLVED_CALL, call] ?: continue
-                if (resolved.resultingDescriptor.isTopLevelInPackage("synchronized", "kotlin")) {
+                if (resolved.resultingDescriptor.isTopLevelInPackage("synchronized", "kotlin") && insideLambda) {
                     context.trace.report(ErrorsJvm.SUSPENSION_POINT_INSIDE_SYNCHRONIZED.on(reportOn, resolvedCall.resultingDescriptor))
                     break
                 }
+            }
+            if (psi is KtLambdaExpression) {
+                insideLambda = true
             }
             psi = psi.parent
         }
