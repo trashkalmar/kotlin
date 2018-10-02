@@ -97,20 +97,32 @@ class KtUltraLightClass(classOrObject: KtClassOrObject, private val calcSupport:
     private val _ownFields: List<KtLightField> by lazyPub {
         val result = arrayListOf<KtLightField>()
         val usedNames = hashSetOf<String>()
+
+        fun generateUniqueName(base: String): String {
+            if (usedNames.add(base)) return base
+            var i = 1
+            while (true) {
+                val suggestion = "$base$$i"
+                if (usedNames.add(suggestion)) return suggestion
+                i++
+            }
+        }
+
+
         for (parameter in propertyParameters()) {
             val modifiers = hashSetOf<String>()
             modifiers.add(PsiModifier.PRIVATE)
             if (!parameter.isMutable) {
                 modifiers.add(PsiModifier.FINAL)
             }
-            result.add(KtUltraLightField(parameter, generateUniqueName(usedNames, parameter.name.orEmpty()), this, support!!, modifiers))
+            result.add(KtUltraLightField(parameter, generateUniqueName(parameter.name.orEmpty()), this, support!!, modifiers))
         }
 
         this.classOrObject.companionObjects.firstOrNull()?.let { companion ->
             result.add(
                 KtUltraLightField(
                     companion,
-                    generateUniqueName(usedNames, companion.name.orEmpty()),
+                    generateUniqueName(companion.name.orEmpty()),
                     this,
                     support!!,
                     setOf(PsiModifier.STATIC, PsiModifier.FINAL, simpleVisibility(companion))
@@ -120,7 +132,7 @@ class KtUltraLightClass(classOrObject: KtClassOrObject, private val calcSupport:
             for (property in companion.declarations.filterIsInstance<KtProperty>()) {
                 if (isInterface && !property.hasModifier(CONST_KEYWORD)) continue
 
-                propertyField(property, usedNames, true)?.let(result::add)
+                propertyField(property, ::generateUniqueName, true)?.let(result::add)
             }
         }
 
@@ -128,7 +140,7 @@ class KtUltraLightClass(classOrObject: KtClassOrObject, private val calcSupport:
             !(this.classOrObject is KtObjectDeclaration && this.classOrObject.isCompanion() && containingClass?.isInterface == false)
         ) {
             for (property in this.classOrObject.declarations.filterIsInstance<KtProperty>()) {
-                propertyField(property, usedNames, forceStatic = this.classOrObject is KtObjectDeclaration)?.let(result::add)
+                propertyField(property, ::generateUniqueName, forceStatic = this.classOrObject is KtObjectDeclaration)?.let(result::add)
             }
         }
 
@@ -147,27 +159,17 @@ class KtUltraLightClass(classOrObject: KtClassOrObject, private val calcSupport:
         result
     }
 
-    private fun generateUniqueName(usedNames: HashSet<String>, base: String): String {
-        if (usedNames.add(base)) return base
-        var i = 1
-        while (true) {
-            val suggestion = "$base$$i"
-            if (usedNames.add(suggestion)) return suggestion
-            i++
-        }
-    }
-
     private fun isNamedObject() = classOrObject is KtObjectDeclaration && !classOrObject.isCompanion()
 
-    private fun propertyField(property: KtProperty, usedNames: HashSet<String>, forceStatic: Boolean): KtLightField? {
+    private fun propertyField(property: KtProperty, generateUniqueName: (String) -> String, forceStatic: Boolean): KtLightField? {
         if (!hasBackingField(property, forceStatic)) return null
 
         val hasDelegate = property.hasDelegate()
-        val fieldName = generateUniqueName(usedNames, (property.name ?: "") + (if (hasDelegate) "\$delegate" else ""))
+        val fieldName = generateUniqueName((property.name ?: "") + (if (hasDelegate) "\$delegate" else ""))
 
         val visibility = when {
             property.hasModifier(PRIVATE_KEYWORD) -> PsiModifier.PRIVATE
-            property.hasModifier(CONST_KEYWORD) || property.hasModifier(LATEINIT_KEYWORD) && property.setter == null -> PsiModifier.PUBLIC
+            property.hasModifier(CONST_KEYWORD) || (property.hasModifier(LATEINIT_KEYWORD) && property.setter == null) -> PsiModifier.PUBLIC
             else -> PsiModifier.PRIVATE
         }
         val modifiers = hashSetOf(visibility)
