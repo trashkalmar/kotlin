@@ -31,17 +31,28 @@ class SuspensionPointInSynchronizedCallChecker : CallChecker {
         var insideLambda = false
         while (psi != enclosingSuspendFunctionSource) {
             if (psi is KtCallExpression) {
-                val call = context.trace[BindingContext.CALL, psi.calleeExpression] ?: continue
-                val resolved = context.trace[BindingContext.RESOLVED_CALL, call] ?: continue
-                if (resolved.resultingDescriptor.isTopLevelInPackage("synchronized", "kotlin") && insideLambda) {
-                    context.trace.report(ErrorsJvm.SUSPENSION_POINT_INSIDE_SYNCHRONIZED.on(reportOn, resolvedCall.resultingDescriptor))
-                    break
-                }
+                if (checkCall(context, psi, insideLambda, reportOn, resolvedCall)) break
             }
             if (psi is KtLambdaExpression) {
                 insideLambda = true
             }
             psi = psi.parent
         }
+    }
+
+    private fun checkCall(
+        context: CallCheckerContext,
+        psi: KtCallExpression,
+        insideLambda: Boolean,
+        reportOn: PsiElement,
+        resolvedCall: ResolvedCall<*>
+    ): Boolean {
+        val call = context.trace[BindingContext.CALL, psi.calleeExpression] ?: return false
+        val resolved = context.trace[BindingContext.RESOLVED_CALL, call] ?: return false
+        if (resolved.resultingDescriptor.isTopLevelInPackage("synchronized", "kotlin") && insideLambda) {
+            context.trace.report(ErrorsJvm.SUSPENSION_POINT_INSIDE_SYNCHRONIZED.on(reportOn, resolvedCall.resultingDescriptor))
+            return true
+        }
+        return false
     }
 }

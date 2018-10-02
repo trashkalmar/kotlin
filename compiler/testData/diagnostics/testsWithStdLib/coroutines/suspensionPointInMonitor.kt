@@ -24,6 +24,12 @@ fun test() {
         synchronized(getLock()) {
             println("")
         }
+        synchronized(suspend { getLock() } ()) {
+            println("")
+        }
+        synchronized(run { getLock() }) {
+            println("")
+        }
     }
 }
 
