@@ -171,16 +171,12 @@ class KotlinMigrationProjectComponent(val project: Project) {
                         }
                     }
                     "kt", "java", "groovy" -> {
-                        val notVisitedParents = generateSequence(changedFile.parentFile) {
-                            if (checkedFiles.add(it)) {
-                                it.parentFile
-                            } else {
-                                null
-                            }
-                        }
-
-                        val isInBuildSrc = notVisitedParents
+                        val dirs: Sequence<File> = generateSequence(changedFile) { it.parentFile }
+                            .drop(1) // Drop original file
                             .takeWhile { it.isDirectory }
+
+                        val isInBuildSrc = dirs
+                            .takeWhile { checkedFiles.add(it) }
                             .any { it.name == BUILD_SRC_FOLDER_NAME }
 
                         if (isInBuildSrc) {
