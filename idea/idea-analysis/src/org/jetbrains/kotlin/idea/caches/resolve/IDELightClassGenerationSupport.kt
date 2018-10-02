@@ -31,6 +31,7 @@ import org.jetbrains.kotlin.asJava.LightClassBuilder
 import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.asJava.builder.InvalidLightClassDataHolder
 import org.jetbrains.kotlin.asJava.builder.LightClassDataHolder
+import org.jetbrains.kotlin.asJava.classes.KtUltraLightClass
 import org.jetbrains.kotlin.asJava.classes.UltraLightSupport
 import org.jetbrains.kotlin.asJava.classes.shouldNotBeVisibleAsLightClass
 import org.jetbrains.kotlin.asJava.finder.JavaElementFinder
@@ -56,7 +57,19 @@ import org.jetbrains.kotlin.resolve.lazy.NoDescriptorForDeclarationException
 import java.util.concurrent.ConcurrentMap
 
 class IDELightClassGenerationSupport(private val project: Project) : LightClassGenerationSupport() {
-    override fun ultraLightSupport(element: KtClassOrObject): UltraLightSupport? {
+    override fun createUltraLightClass(element: KtClassOrObject): KtUltraLightClass? {
+        if (element.shouldNotBeVisibleAsLightClass() ||
+            element is KtObjectDeclaration && element.isObjectLiteral() ||
+            element.isLocal ||
+            element is KtEnumEntry
+        ) {
+            return null
+        }
+
+        return KtUltraLightClass(element, this::createSupport)
+    }
+
+    private fun createSupport(element: KtClassOrObject): UltraLightSupport? {
         val module = ModuleUtilCore.findModuleForPsiElement(element) ?: return null
         val facet = KotlinFacet.get(module)
         val pluginClasspath = facet?.configuration?.settings?.compilerArguments?.pluginClasspaths

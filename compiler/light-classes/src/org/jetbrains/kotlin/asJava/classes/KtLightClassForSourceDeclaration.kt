@@ -108,7 +108,7 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
     private val _containingFile: PsiFile by lazyPub {
         object : FakeFileForLightClass(
             classOrObject.containingKtFile,
-            { if (classOrObject.isTopLevel()) this else createAnotherClass(getOutermostClassOrObject(classOrObject))!! },
+            { if (classOrObject.isTopLevel()) this else create(getOutermostClassOrObject(classOrObject))!! },
             { getJavaFileStub() }
         ) {
             override fun findReferenceAt(offset: Int) = ktFile.findReferenceAt(offset)
@@ -163,7 +163,7 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
 
         val containingClassOrObject = (classOrObject.parent as? KtClassBody)?.parent as? KtClassOrObject
         if (containingClassOrObject != null) {
-            return createAnotherClass(containingClassOrObject)
+            return create(containingClassOrObject)
         }
 
         // TODO: should return null
@@ -304,15 +304,13 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
                 // inner classes with null names can't be searched for and can't be used from java anyway
                 // we can't prohibit creating light classes with null names either since they can contain members
                 .filter { it.name != null }
-                .mapNotNullTo(result) { createAnotherClass(it) }
+                .mapNotNullTo(result) { create(it) }
 
         if (classOrObject.hasInterfaceDefaultImpls) {
             result.add(KtLightClassForInterfaceDefaultImpls(classOrObject))
         }
         return result
     }
-
-    protected open fun createAnotherClass(kt: KtClassOrObject) = create(kt)
 
     override fun getUseScope(): SearchScope = kotlinOrigin.useScope
 
@@ -340,18 +338,15 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
                             .create(createNoCache(classOrObject), OUT_OF_CODE_BLOCK_MODIFICATION_COUNT)
                 }
 
-        fun createUltraLight(classOrObject: KtClassOrObject): KtLightClassForSourceDeclaration? =
-                CachedValuesManager.getCachedValue(classOrObject) {
-                    CachedValueProvider.Result
-                            .create(createNoCache(classOrObject, true), OUT_OF_CODE_BLOCK_MODIFICATION_COUNT)
-                }
-
         private val ultraLight = SystemProperties.getBooleanProperty("use.ultralight.classes", false)
 
-        @JvmOverloads
-        fun createNoCache(classOrObject: KtClassOrObject, ultraLight: Boolean = KtLightClassForSourceDeclaration.ultraLight): KtLightClassForSourceDeclaration? {
+        fun createNoCache(classOrObject: KtClassOrObject): KtLightClassForSourceDeclaration? {
             if (classOrObject.shouldNotBeVisibleAsLightClass()) {
                 return null
+            }
+
+            if (ultraLight) {
+                LightClassGenerationSupport.getInstance(classOrObject.project).createUltraLightClass(classOrObject)?.let { return it }
             }
 
             return when {
@@ -361,8 +356,6 @@ abstract class KtLightClassForSourceDeclaration(protected val classOrObject: KtC
                 classOrObject.isLocal ->
                     KtLightClassForLocalDeclaration(classOrObject)
 
-                ultraLight ->
-                    KtUltraLightClass(classOrObject)
                 else ->
                     KtLightClassImpl(classOrObject)
             }

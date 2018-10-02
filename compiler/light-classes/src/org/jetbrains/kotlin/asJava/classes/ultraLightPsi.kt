@@ -43,12 +43,12 @@ import org.jetbrains.kotlin.resolve.jvm.annotations.VOLATILE_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind
 import org.jetbrains.kotlin.types.KotlinType
 
-class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
+class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOrObject) -> UltraLightSupport?) : KtLightClassImpl(kt) {
     companion object {
         private val LOG = Logger.getInstance(KtUltraLightClass::class.java)
     }
 
-    private val support: UltraLightSupport? by lazyPub { LightClassGenerationSupport.getInstance(project).ultraLightSupport(classOrObject) }
+    private val support: UltraLightSupport? by lazyPub { calcSupport(kt) }
 
     override fun isFinal(isFinalByPsi: Boolean) = if (support == null) super.isFinal(isFinalByPsi) else isFinalByPsi
 
@@ -66,8 +66,6 @@ class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
             }
         }
     }
-
-    override fun createAnotherClass(kt: KtClassOrObject) = if (kt !is KtEnumEntry) createUltraLight(kt) else super.createAnotherClass(kt)
 
     private fun allSuperTypes() =
         getDescriptor()?.typeConstructor?.supertypes?.mapNotNull {
@@ -426,12 +424,12 @@ class KtUltraLightClass(kt: KtClassOrObject) : KtLightClassImpl(kt) {
     override fun getInitializers(): Array<PsiClassInitializer> = emptyArray()
 
     override fun getContainingClass(): PsiClass? =
-        if (support == null) super.getContainingClass() else classOrObject.containingClass()?.let(::KtUltraLightClass)
+        if (support == null) super.getContainingClass() else classOrObject.containingClass()?.let(KtLightClassForSourceDeclaration::create)
 
     override fun getParent(): PsiElement? = if (support == null) super.getParent() else containingClass ?: containingFile
 
     override fun getScope(): PsiElement? = if (support == null) super.getScope() else parent
-    override fun copy(): KtLightClassImpl = KtUltraLightClass(classOrObject.copy() as KtClassOrObject)
+    override fun copy(): KtLightClassImpl = KtUltraLightClass(classOrObject.copy() as KtClassOrObject, calcSupport)
 }
 
 private class KtUltraLightField(
@@ -465,7 +463,7 @@ private class KtUltraLightField(
                     ?.let(TypeConversionUtil::erasure)
                     ?: nonExistent()
             kt is KtObjectDeclaration ->
-                KtLightClassForSourceDeclaration.createUltraLight(kt)?.let { JavaPsiFacade.getElementFactory(project).createType(it) }
+                KtLightClassForSourceDeclaration.create(kt)?.let { JavaPsiFacade.getElementFactory(project).createType(it) }
                     ?: nonExistent()
             else ->
                 kt.getKotlinType()?.let {

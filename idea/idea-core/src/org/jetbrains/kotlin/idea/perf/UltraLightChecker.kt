@@ -7,6 +7,7 @@ package org.jetbrains.kotlin.idea.perf
 
 import com.intellij.psi.*
 import org.jetbrains.annotations.TestOnly
+import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
 import org.jetbrains.kotlin.asJava.classes.KtLightClassForSourceDeclaration
 import org.jetbrains.kotlin.asJava.classes.KtUltraLightClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -16,25 +17,29 @@ import org.junit.Assert
 @TestOnly
 object UltraLightChecker {
     fun checkClassEquivalence(file: KtFile) {
-        for (ktClass in file.declarations.filterIsInstance<KtClassOrObject>().toList()) {
+        for (ktClass in allClasses(file)) {
             checkClassEquivalence(ktClass)
         }
     }
 
+    fun allClasses(file: KtFile): List<KtClassOrObject> =
+        SyntaxTraverser.psiTraverser(file).filter(KtClassOrObject::class.java).toList()
+
     fun checkClassEquivalence(ktClass: KtClassOrObject): KtUltraLightClass? {
         val gold = KtLightClassForSourceDeclaration.create(ktClass)
-        val ultraLightClass = KtLightClassForSourceDeclaration.createUltraLight(ktClass) as KtUltraLightClass?
+        val ultraLightClass = LightClassGenerationSupport.getInstance(ktClass.project).createUltraLightClass(ktClass) ?: return null
+
         if (gold != null) {
             Assert.assertFalse(gold.javaClass.name.contains("Ultra"))
         }
 
         val goldText = gold?.render().orEmpty()
-        val ultraText = ultraLightClass?.render().orEmpty()
+        val ultraText = ultraLightClass.render()
 
         if (goldText != ultraText) {
             Assert.assertEquals(
-                "//Classic implementation:\n$goldText",
-                "//Light implementation:\n$ultraText"
+                "// Classic implementation:\n$goldText",
+                "// Ultra-light implementation:\n$ultraText"
             )
         }
         return ultraLightClass
@@ -105,7 +110,7 @@ object UltraLightChecker {
                 (if (isEnum) fields.filterIsInstance<PsiEnumConstant>().joinToString(",\n") { it.name } + ";\n\n" else "") +
                 fields.filterNot { it is PsiEnumConstant }.map { it.renderVar().prependIndent("  ") + ";\n\n" }.sorted().joinToString("") +
                 methods.map { it.renderMethod().prependIndent("  ") + "\n\n" }.sorted().joinToString("") +
-                innerClasses.map { it.render().prependIndent("  ") }.sorted().joinToString("") +
+                innerClasses.map { "class ${it.name} ...\n\n".prependIndent("  ") }.sorted().joinToString("") +
                 "}"
     }
 
