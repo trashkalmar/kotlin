@@ -7,7 +7,6 @@ package org.jetbrains.kotlin.asJava.classes
 
 import com.google.common.annotations.VisibleForTesting
 import com.intellij.lang.Language
-import com.intellij.openapi.diagnostic.Logger
 import com.intellij.psi.*
 import com.intellij.psi.impl.PsiClassImplUtil
 import com.intellij.psi.impl.PsiImplUtil
@@ -24,7 +23,7 @@ import org.jetbrains.kotlin.codegen.state.KotlinTypeMapper
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor
 import org.jetbrains.kotlin.idea.KotlinLanguage
-import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.lexer.KtTokens.*
 import org.jetbrains.kotlin.load.java.JvmAbi
 import org.jetbrains.kotlin.load.kotlin.TypeMappingMode
 import org.jetbrains.kotlin.name.FqName
@@ -43,12 +42,9 @@ import org.jetbrains.kotlin.resolve.jvm.annotations.VOLATILE_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOriginKind
 import org.jetbrains.kotlin.types.KotlinType
 
-class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOrObject) -> UltraLightSupport?) : KtLightClassImpl(kt) {
-    companion object {
-        private val LOG = Logger.getInstance(KtUltraLightClass::class.java)
-    }
-
-    private val support: UltraLightSupport? by lazyPub { calcSupport(kt) }
+class KtUltraLightClass(classOrObject: KtClassOrObject, private val calcSupport: (KtClassOrObject) -> UltraLightSupport?) :
+    KtLightClassImpl(classOrObject) {
+    private val support: UltraLightSupport? by lazyPub { calcSupport(classOrObject) }
 
     override fun isFinal(isFinalByPsi: Boolean) = if (support == null) super.isFinal(isFinalByPsi) else isFinalByPsi
 
@@ -59,11 +55,7 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
     override fun findLightClassData(): LightClassData = super.findLightClassData().also {
         if (!isClsDelegateLoaded) {
             isClsDelegateLoaded = true
-
             check(support == null) { "Cls delegate shouldn't be loaded for not too complex ultra-light classes!" }
-            if (LOG.isDebugEnabled) {
-                LOG.debug("Loading class data for $qualifiedName", Throwable())
-            }
         }
     }
 
@@ -105,16 +97,16 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
     private val _ownFields: List<KtLightField> by lazyPub {
         val result = arrayListOf<KtLightField>()
         val usedNames = hashSetOf<String>()
-        for (param in propertyParameters()) {
+        for (parameter in propertyParameters()) {
             val modifiers = hashSetOf<String>()
             modifiers.add(PsiModifier.PRIVATE)
-            if (!param.isMutable) {
+            if (!parameter.isMutable) {
                 modifiers.add(PsiModifier.FINAL)
             }
-            result.add(KtUltraLightField(param, generateUniqueName(usedNames, param.name.orEmpty()), this, support!!, modifiers))
+            result.add(KtUltraLightField(parameter, generateUniqueName(usedNames, parameter.name.orEmpty()), this, support!!, modifiers))
         }
 
-        classOrObject.companionObjects.firstOrNull()?.let { companion ->
+        this.classOrObject.companionObjects.firstOrNull()?.let { companion ->
             result.add(
                 KtUltraLightField(
                     companion,
@@ -125,25 +117,25 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
                 )
             )
 
-            for (prop in companion.declarations.filterIsInstance<KtProperty>()) {
-                if (isInterface && !prop.hasModifier(KtTokens.CONST_KEYWORD)) continue
+            for (property in companion.declarations.filterIsInstance<KtProperty>()) {
+                if (isInterface && !property.hasModifier(CONST_KEYWORD)) continue
 
-                propertyField(prop, usedNames, true)?.let(result::add)
+                propertyField(property, usedNames, true)?.let(result::add)
             }
         }
 
         if (!isInterface &&
-            !(classOrObject is KtObjectDeclaration && classOrObject.isCompanion() && containingClass?.isInterface == false)
+            !(this.classOrObject is KtObjectDeclaration && this.classOrObject.isCompanion() && containingClass?.isInterface == false)
         ) {
-            for (prop in classOrObject.declarations.filterIsInstance<KtProperty>()) {
-                propertyField(prop, usedNames, forceStatic = classOrObject is KtObjectDeclaration)?.let(result::add)
+            for (property in this.classOrObject.declarations.filterIsInstance<KtProperty>()) {
+                propertyField(property, usedNames, forceStatic = this.classOrObject is KtObjectDeclaration)?.let(result::add)
             }
         }
 
         if (isNamedObject()) {
             result.add(
                 KtUltraLightField(
-                    classOrObject,
+                    this.classOrObject,
                     JvmAbi.INSTANCE_FIELD,
                     this,
                     support!!,
@@ -167,31 +159,34 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
 
     private fun isNamedObject() = classOrObject is KtObjectDeclaration && !classOrObject.isCompanion()
 
-    private fun propertyField(prop: KtProperty, usedNames: HashSet<String>, forceStatic: Boolean): KtLightField? {
-        if (prop.hasModifier(KtTokens.ABSTRACT_KEYWORD)) return null
-        if ((prop.initializer == null || forceStatic && !prop.isVar) && prop.accessors.isNotEmpty() && !prop.hasModifier(KtTokens.LATEINIT_KEYWORD)) return null
+    private fun propertyField(property: KtProperty, usedNames: HashSet<String>, forceStatic: Boolean): KtLightField? {
+        if (!hasBackingField(property, forceStatic)) return null
 
-        val hasDelegate = prop.hasDelegate()
-        val fieldName = generateUniqueName(usedNames, (prop.name ?: "") + (if (hasDelegate) "\$delegate" else ""))
+        val hasDelegate = property.hasDelegate()
+        val fieldName = generateUniqueName(usedNames, (property.name ?: "") + (if (hasDelegate) "\$delegate" else ""))
 
-        val modifiers = hashSetOf<String>()
-        if (prop.hasModifier(KtTokens.PRIVATE_KEYWORD)) {
-            modifiers.add(PsiModifier.PRIVATE)
-        } else if (prop.hasModifier(KtTokens.CONST_KEYWORD) || prop.hasModifier(KtTokens.LATEINIT_KEYWORD) && prop.setter == null) {
-            modifiers.add(PsiModifier.PUBLIC)
-        } else {
-            modifiers.add(PsiModifier.PRIVATE)
+        val visibility = when {
+            property.hasModifier(PRIVATE_KEYWORD) -> PsiModifier.PRIVATE
+            property.hasModifier(CONST_KEYWORD) || property.hasModifier(LATEINIT_KEYWORD) && property.setter == null -> PsiModifier.PUBLIC
+            else -> PsiModifier.PRIVATE
         }
+        val modifiers = hashSetOf(visibility)
 
-        if (!prop.isVar || prop.hasModifier(KtTokens.CONST_KEYWORD) || hasDelegate) {
+        if (!property.isVar || property.hasModifier(CONST_KEYWORD) || hasDelegate) {
             modifiers.add(PsiModifier.FINAL)
         }
 
-        if (forceStatic || isNamedObject() && isJvmStatic(prop)) {
+        if (forceStatic || isNamedObject() && isJvmStatic(property)) {
             modifiers.add(PsiModifier.STATIC)
         }
 
-        return KtUltraLightField(prop, fieldName, this, support!!, modifiers)
+        return KtUltraLightField(property, fieldName, this, support!!, modifiers)
+    }
+
+    private fun hasBackingField(property: KtProperty, forceStatic: Boolean): Boolean {
+        if (property.hasModifier(ABSTRACT_KEYWORD)) return false
+        if (property.hasModifier(LATEINIT_KEYWORD) || property.accessors.isEmpty()) return true
+        return property.initializer != null && (!forceStatic || property.isVar)
     }
 
     override fun getOwnFields(): List<KtLightField> = if (support == null) super.getOwnFields() else _ownFields
@@ -200,24 +195,24 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
 
     private val _ownMethods: List<KtLightMethod> by lazyPub {
         val result = arrayListOf<KtLightMethod>()
-        for (decl in classOrObject.declarations.filterNot { isHiddenByDeprecation(it) }) {
-            if (decl.hasModifier(KtTokens.PRIVATE_KEYWORD) && isInterface) continue
-            when (decl) {
-                is KtNamedFunction -> result.add(asJavaMethod(decl, false))
-                is KtProperty -> result.addAll(propertyAccessors(decl, decl.name, decl.isVar, false))
+        for (declaration in this.classOrObject.declarations.filterNot { isHiddenByDeprecation(it) }) {
+            if (declaration.hasModifier(PRIVATE_KEYWORD) && isInterface) continue
+            when (declaration) {
+                is KtNamedFunction -> result.add(asJavaMethod(declaration, false))
+                is KtProperty -> result.addAll(propertyAccessors(declaration, declaration.isVar, false))
             }
         }
-        for (param in propertyParameters()) {
-            result.addAll(propertyAccessors(param, param.name, param.isMutable, false))
+        for (parameter in propertyParameters()) {
+            result.addAll(propertyAccessors(parameter, parameter.isMutable, false))
         }
         if (!isInterface) {
             result.addAll(createConstructors())
         }
-        classOrObject.companionObjects.firstOrNull()?.let { companion ->
-            for (decl in companion.declarations.filterNot { isHiddenByDeprecation(it) }) {
-                when (decl) {
-                    is KtNamedFunction -> if (isJvmStatic(decl)) result.add(asJavaMethod(decl, true))
-                    is KtProperty -> result.addAll(propertyAccessors(decl, decl.name, decl.isVar, true))
+        this.classOrObject.companionObjects.firstOrNull()?.let { companion ->
+            for (declaration in companion.declarations.filterNot { isHiddenByDeprecation(it) }) {
+                when (declaration) {
+                    is KtNamedFunction -> if (isJvmStatic(declaration)) result.add(asJavaMethod(declaration, true))
+                    is KtProperty -> result.addAll(propertyAccessors(declaration, declaration.isVar, true))
                 }
             }
         }
@@ -230,46 +225,49 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
         if (constructors.isEmpty()) {
             result.add(defaultConstructor())
         }
-        for (ctx in constructors) {
-            result.add(asJavaMethod(ctx, false))
-            if (ctx == classOrObject.primaryConstructor &&
-                !ctx.hasModifier(KtTokens.PRIVATE_KEYWORD) &&
-                ctx.valueParameters.isNotEmpty() &&
-                ctx.valueParameters.all { it.defaultValue != null } &&
-                constructors.none { it.valueParameters.isEmpty() }
-            ) {
-                result.add(noArgConstructor(simpleVisibility(ctx), ctx))
-
-            }
+        for (constructor in constructors) {
+            result.add(asJavaMethod(constructor, false))
+        }
+        val primary = classOrObject.primaryConstructor
+        if (primary != null && shouldGenerateNoArgOverload(primary)) {
+            result.add(noArgConstructor(simpleVisibility(primary), primary))
         }
         return result
     }
 
+    private fun shouldGenerateNoArgOverload(primary: KtPrimaryConstructor): Boolean {
+        return !primary.hasModifier(PRIVATE_KEYWORD) &&
+                primary.valueParameters.isNotEmpty() &&
+                primary.valueParameters.all { it.defaultValue != null } &&
+                classOrObject.allConstructors.none { it.valueParameters.isEmpty() }
+    }
+
     private fun defaultConstructor(): KtUltraLightMethod {
         val visibility =
-            if (classOrObject is KtObjectDeclaration || classOrObject.hasModifier(KtTokens.SEALED_KEYWORD))
-                PsiModifier.PRIVATE
+            if (classOrObject is KtObjectDeclaration || classOrObject.hasModifier(SEALED_KEYWORD)) PsiModifier.PRIVATE
             else PsiModifier.PUBLIC
         return noArgConstructor(visibility, classOrObject)
     }
 
-    private fun simpleVisibility(ctx: KtDeclaration): String = when {
-        ctx.hasModifier(KtTokens.PRIVATE_KEYWORD) -> PsiModifier.PRIVATE
-        ctx.hasModifier(KtTokens.PROTECTED_KEYWORD) -> PsiModifier.PROTECTED
+    private fun simpleVisibility(declaration: KtDeclaration): String = when {
+        declaration.hasModifier(PRIVATE_KEYWORD) -> PsiModifier.PRIVATE
+        declaration.hasModifier(PROTECTED_KEYWORD) -> PsiModifier.PROTECTED
         else -> PsiModifier.PUBLIC
     }
 
-    private fun noArgConstructor(visibility: String, decl: KtDeclaration): KtUltraLightMethod = KtUltraLightMethod(
+    private fun noArgConstructor(visibility: String, declaration: KtDeclaration): KtUltraLightMethod = KtUltraLightMethod(
         LightMethodBuilder(manager, language, name.orEmpty()).setConstructor(true).addModifier(visibility),
-        decl,
+        declaration,
         support!!,
         this
     )
 
-    private fun isHiddenByDeprecation(decl: KtDeclaration): Boolean =
-        (support!!.findAnnotation(decl, FqName("kotlin.Deprecated"))?.argumentValue("level") as? EnumValue)?.enumEntryName?.asString() == "HIDDEN"
+    private fun isHiddenByDeprecation(declaration: KtDeclaration): Boolean {
+        val deprecated = support!!.findAnnotation(declaration, FqName("kotlin.Deprecated"))
+        return (deprecated?.argumentValue("level") as? EnumValue)?.enumEntryName?.asString() == "HIDDEN"
+    }
 
-    private fun isJvmStatic(decl: KtAnnotated): Boolean = decl.hasAnnotation(JVM_STATIC_ANNOTATION_FQ_NAME)
+    private fun isJvmStatic(declaration: KtAnnotated): Boolean = declaration.hasAnnotation(JVM_STATIC_ANNOTATION_FQ_NAME)
 
     override fun getOwnMethods(): List<KtLightMethod> = if (support == null) super.getOwnMethods() else _ownMethods
 
@@ -279,14 +277,14 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
         val method = lightMethod(name.orEmpty(), listOf(f), forceStatic)
         val wrapper = KtUltraLightMethod(method, f, support!!, this)
         addReceiverParameter(f, wrapper)
-        for (param in f.valueParameters) {
-            method.addParameter(KtUltraLightParameter(param.name.orEmpty(), param, support!!, wrapper, null))
+        for (parameter in f.valueParameters) {
+            method.addParameter(KtUltraLightParameter(parameter.name.orEmpty(), parameter, support!!, wrapper, null))
         }
         val returnType: PsiType? by lazyPub {
             if (isConstructor) null
             else methodReturnType(f)
         }
-        method.setMethodReturnType({ returnType })
+        method.setMethodReturnType { returnType }
         return wrapper
     }
 
@@ -314,9 +312,9 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
             override fun hasModifierProperty(name: String): Boolean {
                 if (name == PsiModifier.PUBLIC || name == PsiModifier.PROTECTED || name == PsiModifier.PRIVATE) {
                     if (decls.any { isPrivate(it) }) return name == PsiModifier.PRIVATE
-                    if (decls.any { it.hasModifier(KtTokens.PROTECTED_KEYWORD) }) return name == PsiModifier.PROTECTED
+                    if (decls.any { it.hasModifier(PROTECTED_KEYWORD) }) return name == PsiModifier.PROTECTED
 
-                    val overriding = decls.find { it.hasModifier(KtTokens.OVERRIDE_KEYWORD) }
+                    val overriding = decls.find { it.hasModifier(OVERRIDE_KEYWORD) }
                     when ((overriding?.resolve() as? CallableDescriptor)?.effectiveVisibility()) {
                         EffectiveVisibility.Public -> return name == PsiModifier.PUBLIC
                         EffectiveVisibility.Private -> return name == PsiModifier.PRIVATE
@@ -328,7 +326,7 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
 
                 return when (name) {
                     PsiModifier.FINAL -> !isInterface && decls.any { it !is KtConstructor<*> && isFinal(it) }
-                    PsiModifier.ABSTRACT -> isInterface || decls.any { it.hasModifier(KtTokens.ABSTRACT_KEYWORD) }
+                    PsiModifier.ABSTRACT -> isInterface || decls.any { it.hasModifier(ABSTRACT_KEYWORD) }
                     PsiModifier.STATIC -> forceStatic || isNamedObject() && decls.any { isJvmStatic(it) }
                     PsiModifier.STRICTFP -> decls.any { it is KtFunction && it.hasAnnotation(STRICTFP_ANNOTATION_FQ_NAME) }
                     PsiModifier.SYNCHRONIZED -> decls.any { it is KtFunction && it.hasAnnotation(SYNCHRONIZED_ANNOTATION_FQ_NAME) }
@@ -336,18 +334,21 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
                 }
             }
 
-            fun isPrivate(decl: KtDeclaration) =
-                decl.hasModifier(KtTokens.PRIVATE_KEYWORD) ||
-                        decl is KtFunction && decl.typeParameters.any { it.hasModifier(KtTokens.REIFIED_KEYWORD) }
+            fun isPrivate(declaration: KtDeclaration) =
+                declaration.hasModifier(PRIVATE_KEYWORD) ||
+                        declaration is KtFunction && declaration.typeParameters.any { it.hasModifier(REIFIED_KEYWORD) }
         }
     ).setConstructor(decls.any { it is KtConstructor<*> || it is KtClassOrObject })
 
-    private fun mangleIfNeeded(decls: List<KtDeclaration>, name: String): String {
-        for (decl in decls) {
-            if (decl.hasModifier(KtTokens.PRIVATE_KEYWORD) || decl.hasModifier(KtTokens.PROTECTED_KEYWORD) || decl.hasModifier(KtTokens.PUBLIC_KEYWORD)) {
+    private fun mangleIfNeeded(declarations: List<KtDeclaration>, name: String): String {
+        for (declaration in declarations) {
+            if (declaration.hasModifier(PRIVATE_KEYWORD) ||
+                declaration.hasModifier(PROTECTED_KEYWORD) ||
+                declaration.hasModifier(PUBLIC_KEYWORD)
+            ) {
                 return name
             }
-            if (isInternal(decl) && decl.resolve()?.isPublishedApi() != true) {
+            if (isInternal(declaration) && declaration.resolve()?.isPublishedApi() != true) {
                 return KotlinTypeMapper.InternalNameMapper.mangleInternalName(name, support!!.moduleName)
             }
         }
@@ -357,34 +358,30 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
     private fun KtAnnotated.hasAnnotation(name: FqName) = support!!.findAnnotation(this, name) != null
 
     private fun isInternal(f: KtDeclaration): Boolean {
-        if (f.hasModifier(KtTokens.OVERRIDE_KEYWORD)) {
+        if (f.hasModifier(OVERRIDE_KEYWORD)) {
             val desc = f.resolve()
             return desc is CallableDescriptor &&
                     desc.visibility.effectiveVisibility(desc, false) == EffectiveVisibility.Internal
         }
-        return f.hasModifier(KtTokens.INTERNAL_KEYWORD)
+        return f.hasModifier(INTERNAL_KEYWORD)
     }
 
-    private fun propertyAccessors(
-        decl: KtDeclaration,
-        propertyName: String?,
-        mutable: Boolean,
-        onlyJvmStatic: Boolean
-    ): List<KtLightMethod> {
-        if (decl.hasModifier(KtTokens.CONST_KEYWORD) || propertyName == null) return emptyList()
+    private fun propertyAccessors(declaration: KtNamedDeclaration, mutable: Boolean, onlyJvmStatic: Boolean): List<KtLightMethod> {
+        val propertyName = declaration.name
+        if (declaration.hasModifier(CONST_KEYWORD) || propertyName == null) return emptyList()
 
-        val ktGetter = (decl as? KtProperty)?.getter
-        val ktSetter = (decl as? KtProperty)?.setter
+        val ktGetter = (declaration as? KtProperty)?.getter
+        val ktSetter = (declaration as? KtProperty)?.setter
 
-        val isPrivate = decl.hasModifier(KtTokens.PRIVATE_KEYWORD)
-        if (isPrivate && decl !is KtProperty) return emptyList()
+        val isPrivate = declaration.hasModifier(PRIVATE_KEYWORD)
+        if (isPrivate && declaration !is KtProperty) return emptyList()
 
         fun needsAccessor(accessor: KtPropertyAccessor?): Boolean {
-            if (!onlyJvmStatic || isJvmStatic(decl) || accessor != null && isJvmStatic(accessor)) {
-                if (isInterface && accessor?.hasModifier(KtTokens.PRIVATE_KEYWORD) == true) {
+            if (!onlyJvmStatic || isJvmStatic(declaration) || accessor != null && isJvmStatic(accessor)) {
+                if (isInterface && accessor?.hasModifier(PRIVATE_KEYWORD) == true) {
                     return false
                 }
-                if (!isPrivate || accessor?.hasBody() == true || decl is KtProperty && decl.hasDelegate()) {
+                if (!isPrivate || accessor?.hasBody() == true || declaration is KtProperty && declaration.hasDelegate()) {
                     return true
                 }
             }
@@ -394,31 +391,34 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
         val result = arrayListOf<KtLightMethod>()
 
         if (needsAccessor(ktGetter)) {
-            val getterName = mangleIfNeeded(listOfNotNull(ktGetter, decl), JvmAbi.getterName(propertyName))
-            val getterType: PsiType by lazyPub { methodReturnType(decl) }
-            val getterPrototype = lightMethod(getterName, listOfNotNull(decl, ktGetter), onlyJvmStatic)
-                .setMethodReturnType({ getterType })
-            val getterWrapper = KtUltraLightMethod(getterPrototype, decl, support!!, this)
-            addReceiverParameter(decl, getterWrapper)
+            val getterName = mangleIfNeeded(listOfNotNull(ktGetter, declaration), JvmAbi.getterName(propertyName))
+            val getterType: PsiType by lazyPub { methodReturnType(declaration) }
+            val getterPrototype = lightMethod(getterName, listOfNotNull(declaration, ktGetter), onlyJvmStatic)
+                .setMethodReturnType { getterType }
+            val getterWrapper = KtUltraLightMethod(getterPrototype, declaration, support!!, this)
+            addReceiverParameter(declaration, getterWrapper)
             result.add(getterWrapper)
         }
 
         if (mutable && needsAccessor(ktSetter)) {
-            val setterName = mangleIfNeeded(listOfNotNull(ktSetter, decl), JvmAbi.setterName(propertyName))
-            val setterPrototype = lightMethod(setterName, listOfNotNull(decl, ktSetter), onlyJvmStatic)
+            val setterName = mangleIfNeeded(listOfNotNull(ktSetter, declaration), JvmAbi.setterName(propertyName))
+            val setterPrototype = lightMethod(setterName, listOfNotNull(declaration, ktSetter), onlyJvmStatic)
                 .setMethodReturnType(PsiType.VOID)
-            val setterWrapper = KtUltraLightMethod(setterPrototype, decl, support!!, this)
-            addReceiverParameter(decl, setterWrapper)
-            setterPrototype.addParameter(KtUltraLightParameter(propertyName, ktSetter?.parameter ?: decl, support!!, setterWrapper, null))
+            val setterWrapper = KtUltraLightMethod(setterPrototype, declaration, support!!, this)
+            addReceiverParameter(declaration, setterWrapper)
+            val parameterOrigin = ktSetter?.parameter ?: declaration
+            setterPrototype.addParameter(KtUltraLightParameter(propertyName, parameterOrigin, support!!, setterWrapper, null))
             result.add(setterWrapper)
         }
         return result
     }
 
-    private fun isFinal(decl: KtDeclaration): Boolean {
-        if (decl.hasModifier(KtTokens.FINAL_KEYWORD)) return true
-        return decl !is KtPropertyAccessor &&
-                !decl.hasModifier(KtTokens.OPEN_KEYWORD) && !decl.hasModifier(KtTokens.OVERRIDE_KEYWORD) && !decl.hasModifier(KtTokens.ABSTRACT_KEYWORD)
+    private fun isFinal(declaration: KtDeclaration): Boolean {
+        if (declaration.hasModifier(FINAL_KEYWORD)) return true
+        return declaration !is KtPropertyAccessor &&
+                !declaration.hasModifier(OPEN_KEYWORD) &&
+                !declaration.hasModifier(OVERRIDE_KEYWORD) &&
+                !declaration.hasModifier(ABSTRACT_KEYWORD)
     }
 
     override fun getInitializers(): Array<PsiClassInitializer> = emptyArray()
@@ -433,16 +433,16 @@ class KtUltraLightClass(kt: KtClassOrObject, private val calcSupport: (KtClassOr
 }
 
 private class KtUltraLightField(
-    private val kt: KtNamedDeclaration,
+    private val declaration: KtNamedDeclaration,
     name: String,
     private val containingClass: KtUltraLightClass,
     private val support: UltraLightSupport,
     val modifiers: Set<String>
-) : LightFieldBuilder(name, PsiType.NULL, kt), KtLightField {
+) : LightFieldBuilder(name, PsiType.NULL, declaration), KtLightField {
     private val modList = object : KtLightSimpleModifierList(this, modifiers) {
         override fun hasModifierProperty(name: String): Boolean = when (name) {
-            PsiModifier.VOLATILE -> support.findAnnotation(kt, VOLATILE_ANNOTATION_FQ_NAME) != null
-            PsiModifier.TRANSIENT -> support.findAnnotation(kt, TRANSIENT_ANNOTATION_FQ_NAME) != null
+            PsiModifier.VOLATILE -> support.findAnnotation(declaration, VOLATILE_ANNOTATION_FQ_NAME) != null
+            PsiModifier.TRANSIENT -> support.findAnnotation(declaration, TRANSIENT_ANNOTATION_FQ_NAME) != null
             else -> super.hasModifierProperty(name)
         }
     }
@@ -454,22 +454,27 @@ private class KtUltraLightField(
     override fun getLanguage(): Language = KotlinLanguage.INSTANCE
 
     private val _type: PsiType by lazyPub {
-        fun nonExistent() = JavaPsiFacade.getElementFactory(project).createTypeFromText("error.NonExistentClass", kt)
+        fun nonExistent() = JavaPsiFacade.getElementFactory(project).createTypeFromText("error.NonExistentClass", declaration)
         when {
-            kt is KtProperty && kt.hasDelegate() ->
-                (kt.resolve() as? PropertyDescriptor)
-                    ?.let { PropertyCodegen.getDelegateTypeForProperty(kt, it, LightClassGenerationSupport.getInstance(project).analyze(kt)) }
-                    ?.let { it.asPsiType(kt, support, TypeMappingMode.getOptimalModeForValueParameter(it), this) }
+            declaration is KtProperty && declaration.hasDelegate() ->
+                (declaration.resolve() as? PropertyDescriptor)
+                    ?.let {
+                        val context = LightClassGenerationSupport.getInstance(project).analyze(declaration)
+                        PropertyCodegen.getDelegateTypeForProperty(declaration, it, context)
+                    }
+                    ?.let { it.asPsiType(declaration, support, TypeMappingMode.getOptimalModeForValueParameter(it), this) }
                     ?.let(TypeConversionUtil::erasure)
                     ?: nonExistent()
-            kt is KtObjectDeclaration ->
-                KtLightClassForSourceDeclaration.create(kt)?.let { JavaPsiFacade.getElementFactory(project).createType(it) }
+            declaration is KtObjectDeclaration ->
+                KtLightClassForSourceDeclaration.create(declaration)?.let { JavaPsiFacade.getElementFactory(project).createType(it) }
                     ?: nonExistent()
             else ->
-                kt.getKotlinType()?.let {
-                    val mode = if ((kt.resolve() as? PropertyDescriptor)?.isVar == true) TypeMappingMode.getOptimalModeForValueParameter(it)
-                    else TypeMappingMode.getOptimalModeForReturnType(it, false)
-                    it.asPsiType(kt, support, mode, this)
+                declaration.getKotlinType()?.let {
+                    val mode = when {
+                        (declaration.resolve() as? PropertyDescriptor)?.isVar == true -> TypeMappingMode.getOptimalModeForValueParameter(it)
+                        else -> TypeMappingMode.getOptimalModeForReturnType(it, false)
+                    }
+                    it.asPsiType(declaration, support, mode, this)
                 } ?: PsiType.NULL
         }
     }
@@ -484,15 +489,15 @@ private class KtUltraLightField(
         if (hasModifierProperty(PsiModifier.FINAL) &&
             (TypeConversionUtil.isPrimitiveAndNotNull(_type) || _type.equalsToText(CommonClassNames.JAVA_LANG_STRING))
         )
-            (kt.resolve() as? VariableDescriptor)?.compileTimeInitializer?.value
+            (declaration.resolve() as? VariableDescriptor)?.compileTimeInitializer?.value
         else null
 
     override fun computeConstantValue(visitedVars: MutableSet<PsiVariable>?): Any? = computeConstantValue()
 
-    override val kotlinOrigin = kt
+    override val kotlinOrigin = declaration
     override val clsDelegate: PsiField
         get() = throw IllegalStateException("Cls delegate shouldn't be loaded for ultra-light PSI!")
-    override val lightMemberOrigin = LightMemberOriginForDeclaration(kt, JvmDeclarationOriginKind.OTHER)
+    override val lightMemberOrigin = LightMemberOriginForDeclaration(declaration, JvmDeclarationOriginKind.OTHER)
 
     override fun setName(@NonNls name: String): PsiElement {
         (kotlinOrigin as? KtNamedDeclaration)?.setName(name)
@@ -605,5 +610,5 @@ internal class KtUltraLightParameter(
 
 interface UltraLightSupport {
     val moduleName: String
-    fun findAnnotation(kt: KtAnnotated, fqName: FqName): AnnotationDescriptor?
+    fun findAnnotation(owner: KtAnnotated, fqName: FqName): AnnotationDescriptor?
 }

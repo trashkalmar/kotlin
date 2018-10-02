@@ -32,16 +32,16 @@ import org.jetbrains.kotlin.types.KotlinType
 import java.text.StringCharacterIterator
 
 internal fun buildTypeParameterList(
-    decl: KtTypeParameterListOwner,
+    declaration: KtTypeParameterListOwner,
     owner: PsiTypeParameterListOwner,
     support: UltraLightSupport
 ): PsiTypeParameterList {
     val tpList = KotlinLightTypeParameterListBuilder(owner)
-    for ((i, ktParam) in decl.typeParameters.withIndex()) {
+    for ((i, ktParam) in declaration.typeParameters.withIndex()) {
         tpList.addParameter(object : LightTypeParameterBuilder(ktParam.name.orEmpty(), owner, i) {
             private val superList: LightReferenceListBuilder by lazyPub {
                 val boundList = LightReferenceListBuilder(manager, PsiReferenceList.Role.EXTENDS_BOUNDS_LIST)
-                if (ktParam.extendsBound != null || decl.typeConstraints.isNotEmpty()) {
+                if (ktParam.extendsBound != null || declaration.typeConstraints.isNotEmpty()) {
                     val boundTypes = (ktParam.resolve() as? TypeParameterDescriptor)?.upperBounds.orEmpty()
                         .mapNotNull { it.asPsiType(ktParam, support, TypeMappingMode.DEFAULT, this) as? PsiClassType }
                     if (!(boundTypes.size == 1 && boundTypes[0].equalsToText(CommonClassNames.JAVA_LANG_OBJECT))) {
@@ -73,13 +73,13 @@ internal fun KtDeclaration.resolve() = LightClassGenerationSupport.getInstance(p
 
 // copy-pasted from kotlinInternalUastUtils.kt and post-processed
 internal fun KotlinType.asPsiType(
-    decl: KtDeclaration,
+    declaration: KtDeclaration,
     support: UltraLightSupport,
     mode: TypeMappingMode,
-    psiContext: PsiElement = decl
+    psiContext: PsiElement = declaration
 ): PsiType {
     val typeFqName = constructor.declarationDescriptor?.fqNameSafe?.asString()
-    if (typeFqName == "kotlin.Unit" && decl is KtFunction) return PsiType.VOID
+    if (typeFqName == "kotlin.Unit" && declaration is KtFunction) return PsiType.VOID
 
     val signatureWriter = BothSignatureWriter(BothSignatureWriter.Mode.TYPE)
     typeMapper(support).mapType(this, signatureWriter, mode)

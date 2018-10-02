@@ -78,76 +78,78 @@ class IDELightClassGenerationSupport(private val project: Project) : LightClassG
             return null
         }
 
-        val decl = findTooComplexDeclaration(element)
-        if (decl != null) {
-            LOG.debug { "Using heavy light classes for ${element.fqName?.asString()} because of ${StringUtil.trimLog(decl.text, 100)}" }
+        val problem = findTooComplexDeclaration(element)
+        if (problem != null) {
+            LOG.debug {
+                "Using heavy light classes for ${element.fqName?.asString()} because of ${StringUtil.trimLog(problem.text, 100)}"
+            }
             return null
         }
 
         return object : UltraLightSupport {
             override val moduleName: String = module.name
 
-            override fun findAnnotation(kt: KtAnnotated, fqName: FqName): AnnotationDescriptor? = kt
+            override fun findAnnotation(owner: KtAnnotated, fqName: FqName): AnnotationDescriptor? = owner
                 .annotationEntries
-                .filter { it.shortName == fqName.shortName() || hasAlias(kt, fqName.shortName()) }
+                .filter { it.shortName == fqName.shortName() || hasAlias(owner, fqName.shortName()) }
                 .mapNotNull { analyze(it).get(BindingContext.ANNOTATION, it) }
                 .find { it.fqName == fqName }
         }
     }
 
-    private fun findTooComplexDeclaration(kt: KtDeclaration): PsiElement? {
+    private fun findTooComplexDeclaration(declaration: KtDeclaration): PsiElement? {
         fun KtAnnotationEntry.seemsNonTrivial(): Boolean {
             val name = shortName
-            return name == null || hasAlias(kt, name) || name.asString().startsWith("Jvm") && name.asString() != "JvmStatic"
+            return name == null || hasAlias(declaration, name) || name.asString().startsWith("Jvm") && name.asString() != "JvmStatic"
         }
 
-        if (kt.hasExpectModifier() ||
-            kt.hasModifier(KtTokens.ANNOTATION_KEYWORD) ||
-            kt.hasModifier(KtTokens.INLINE_KEYWORD) && kt is KtClassOrObject ||
-            kt.hasModifier(KtTokens.DATA_KEYWORD) ||
-            kt.hasModifier(KtTokens.ENUM_KEYWORD) ||
-            kt.hasModifier(KtTokens.SUSPEND_KEYWORD)) {
-            return kt
+        if (declaration.hasExpectModifier() ||
+            declaration.hasModifier(KtTokens.ANNOTATION_KEYWORD) ||
+            declaration.hasModifier(KtTokens.INLINE_KEYWORD) && declaration is KtClassOrObject ||
+            declaration.hasModifier(KtTokens.DATA_KEYWORD) ||
+            declaration.hasModifier(KtTokens.ENUM_KEYWORD) ||
+            declaration.hasModifier(KtTokens.SUSPEND_KEYWORD)) {
+            return declaration
         }
 
-        kt.annotationEntries.find(KtAnnotationEntry::seemsNonTrivial)?.let { return it }
+        declaration.annotationEntries.find(KtAnnotationEntry::seemsNonTrivial)?.let { return it }
 
-        if (kt is KtClassOrObject) {
-            kt.superTypeListEntries.find { it is KtDelegatedSuperTypeEntry }?.let { return it }
+        if (declaration is KtClassOrObject) {
+            declaration.superTypeListEntries.find { it is KtDelegatedSuperTypeEntry }?.let { return it }
 
-            for (d in kt.declarations) {
+            for (d in declaration.declarations) {
                 if (d is KtClassOrObject && !(d is KtObjectDeclaration && d.isCompanion())) continue
                 
                 findTooComplexDeclaration(d)?.let { return it }
             }
 
-            if (implementsKotlinCollection(kt)) {
-                return kt.getSuperTypeList()
+            if (implementsKotlinCollection(declaration)) {
+                return declaration.getSuperTypeList()
             }
         }
-        if (kt is KtCallableDeclaration) {
-            kt.valueParameters.mapNotNull { findTooComplexDeclaration(it) }.firstOrNull()?.let { return it }
-            if (kt.typeReference == null && (kt as? KtFunction)?.hasBlockBody() != true) {
-                findPotentiallyReturnedAnonymousObject(kt)?.let { return it }
+        if (declaration is KtCallableDeclaration) {
+            declaration.valueParameters.mapNotNull { findTooComplexDeclaration(it) }.firstOrNull()?.let { return it }
+            if (declaration.typeReference == null && (declaration as? KtFunction)?.hasBlockBody() != true) {
+                findPotentiallyReturnedAnonymousObject(declaration)?.let { return it }
             }
-            if (kt.typeReference?.hasModifier(KtTokens.SUSPEND_KEYWORD) == true) {
-                return kt.typeReference
+            if (declaration.typeReference?.hasModifier(KtTokens.SUSPEND_KEYWORD) == true) {
+                return declaration.typeReference
             }
         }
-        if (kt is KtProperty) {
-            kt.accessors.mapNotNull { findTooComplexDeclaration(it) }.firstOrNull()?.let { return it }
+        if (declaration is KtProperty) {
+            declaration.accessors.mapNotNull { findTooComplexDeclaration(it) }.firstOrNull()?.let { return it }
         }
 
         return null
 
     }
 
-    private fun findPotentiallyReturnedAnonymousObject(kt: KtDeclaration): KtObjectDeclaration? {
-        val spine = kt.containingKtFile.stubbedSpine
+    private fun findPotentiallyReturnedAnonymousObject(declaration: KtDeclaration): KtObjectDeclaration? {
+        val spine = declaration.containingKtFile.stubbedSpine
         for (i in 0 until spine.stubCount) {
             if (spine.getStubType(i) == KtStubElementTypes.OBJECT_DECLARATION) {
                 val obj = spine.getStubPsi(i) as KtObjectDeclaration
-                if (obj.isObjectLiteral() && PsiTreeUtil.isContextAncestor(kt, obj, true)) {
+                if (obj.isObjectLiteral() && PsiTreeUtil.isContextAncestor(declaration, obj, true)) {
                     return obj
                 }
             }
@@ -155,15 +157,15 @@ class IDELightClassGenerationSupport(private val project: Project) : LightClassG
         return null
     }
 
-    private fun implementsKotlinCollection(kt: KtClassOrObject): Boolean {
-        val implementsInterfaces = kt.superTypeListEntries.any { it is KtSuperTypeEntry }
+    private fun implementsKotlinCollection(classOrObject: KtClassOrObject): Boolean {
+        val implementsInterfaces = classOrObject.superTypeListEntries.any { it is KtSuperTypeEntry }
         return implementsInterfaces &&
-                (resolveToDescriptor(kt) as? ClassifierDescriptor)?.getAllSuperClassifiers()?.any {
+                (resolveToDescriptor(classOrObject) as? ClassifierDescriptor)?.getAllSuperClassifiers()?.any {
                     it.fqNameSafe.asString().startsWith("kotlin.collections.")
                 } == true
     }
 
-    private fun hasAlias(kt: KtElement, shortName: Name): Boolean = allAliases(kt.containingKtFile)[shortName.asString()] == true
+    private fun hasAlias(element: KtElement, shortName: Name): Boolean = allAliases(element.containingKtFile)[shortName.asString()] == true
 
     private fun allAliases(file: KtFile): ConcurrentMap<String, Boolean> = CachedValuesManager.getCachedValue(file) {
         val importAliases = file.importDirectives.mapNotNull { it.aliasName }.toSet()
