@@ -23,3 +23,16 @@ val generateFeatureInteractionSpecTestData by generator("org.jetbrains.kotlin.sp
 val printSpecTestsStatistic by generator("org.jetbrains.kotlin.spec.tasks.PrintSpecTestsStatisticKt")
 
 val generateJsonTestsMap by generator("org.jetbrains.kotlin.spec.tasks.GenerateJsonTestsMapKt")
+
+project.tasks.create("distTest") {
+    val packagePrefix = "org.jetbrains.kotlin."
+    val includeTests = setOf(
+        "checkers.DiagnosticsTestSpecGenerated\$NotLinked\$Contracts"
+    )
+
+    dependsOn((tasks["test"] as Test).apply {
+        filter {
+            includeTests.forEach { includeTestsMatching(packagePrefix + it) }
+        }
+    })
+}
